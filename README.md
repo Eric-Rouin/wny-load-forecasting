@@ -42,13 +42,63 @@ over the last 24 months on hours where every model has a forecast.
 ```bash
 pip install -r requirements.txt
 python -m wnyload.download        # NYISO load + forecasts + weather, cached in data/raw
-python -m wnyload.run_backtest    # features, walk-forward backtest, report in reports/
+python -m wnyload.run_backtest    # features, walk-forward backtest, report and charts in reports/
+python -m wnyload.forecast        # forecast tomorrow, saved to reports/forecasts/
 ```
+
+`python -m wnyload.forecast --day 2026-10-22` forecasts a past day exactly as it would have
+been forecast at the time (trained only on data before 9 AM the day before), so it can be
+checked against the actual load. `python -m wnyload.charts` redraws the backtest charts
+without re-running the backtest.
+
+![Example forecast](reports/figures/example_forecast.png)
 
 ## Results
 
-_To be filled in after the first full backtest:_ MAPE / MAE for each model, monthly error
-chart, and notes on where the model misses (storms, holidays, heat waves).
+Walk-forward backtest, November 2024 to October 2026, 17,204 hours where every model has a
+forecast:
+
+| Forecast | MAPE | MAE | RMSE |
+|---|---|---|---|
+| NYISO day-ahead forecast | **3.40%** | 57 MW | 74 MW |
+| This model (LightGBM) | 3.87% | 64 MW | 87 MW |
+| Same hour last week | 7.95% | 135 MW | 185 MW |
+
+![Forecast error by model](reports/figures/accuracy.png)
+
+The model cuts the naive baseline's error in half but does not yet beat NYISO. Overnight and
+in the evening it is as good as NYISO or slightly better; the whole gap comes from daylight
+hours.
+
+![Forecast error by hour of day](reports/figures/error_by_hour.png)
+
+**Why: rooftop solar.** Solar panels behind customers' meters lower the load the grid sees
+on sunny days, and there are more of them every year. The model learns from past years, so
+it expects more midday load than there now is. Its midday (10 AM to 3 PM) bias grows over
+time and with sunshine, while NYISO's stays near zero:
+
+| Midday hours | Model bias | NYISO bias |
+|---|---|---|
+| Second half of 2024 | −27 MW | −50 MW |
+| First half of 2026 | +78 MW | −4 MW |
+| Second half of 2026 | +130 MW | +4 MW |
+| Cloudy (under 100 W/m² of sunlight) | −25 MW | −59 MW |
+| Full sun (over 700 W/m²) | +121 MW | +16 MW |
+
+The model's worst days are all sunny spring and summer days, when actual load dropped
+sharply around midday and the model expected a normal day:
+
+![The model's worst days](reports/figures/worst_days.png)
+
+The same pattern shows up month by month (the gap widens from spring 2026) and by
+temperature (the model falls behind on warm, usually sunny, days):
+
+![Forecast error by month](reports/figures/monthly_error.png)
+![Forecast error by temperature](reports/figures/error_by_temperature.png)
+![Most recent backtest week](reports/figures/sample_week.png)
+
+Full numbers: `reports/backtest_metrics.json`, `reports/backtest_monthly_mape.csv` and the
+ten worst days in `reports/worst_days.csv`.
 
 ## Known limitations
 
@@ -63,7 +113,10 @@ chart, and notes on where the model misses (storms, holidays, heat waves).
 
 ## Roadmap
 
-1. First backtest and error analysis
-2. Feature and model improvements (hyperparameter tuning, more weather points, solar data from NYSERDA's IEDR)
-3. Daily job: fetch data, forecast tomorrow, score yesterday
+1. ~~First backtest and error analysis~~ (done; see Results)
+2. Feature and model improvements: account for growing rooftop solar first (a time trend,
+   weighting recent data more, or solar capacity data from NYSERDA's IEDR), then
+   hyperparameter tuning and more weather points
+3. Daily job: fetch data, forecast tomorrow, score yesterday (`wnyload.forecast` is the
+   forecasting half)
 4. Dashboard (Streamlit or FastAPI) in Docker on a home server, published through Cloudflare Tunnel

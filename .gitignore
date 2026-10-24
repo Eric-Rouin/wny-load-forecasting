@@ -1,5 +1,7 @@
 data/
 reports/*.parquet
+reports/forecasts/
+*.log
 __pycache__/
 *.pyc
 .venv/

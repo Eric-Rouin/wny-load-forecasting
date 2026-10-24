@@ -54,7 +54,10 @@ def walk_forward(table: pd.DataFrame, nyiso: pd.Series | None, test_months: int 
         train = data[data.index < test_start - pd.Timedelta(days=1)]
         model = make_model()
         model.fit(train[FEATURES], train["load_mw"])
-        test = data[test_mask]
+        # Only score hours that have weather (the archive lags real time by ~6 days).
+        test = data[test_mask].dropna(subset=["temperature_2m"])
+        if test.empty:
+            continue
         out = pd.DataFrame(index=test.index)
         out["actual"] = test["load_mw"]
         out["gbm"] = model.predict(test[FEATURES])
@@ -86,23 +89,3 @@ def save_report(pred: pd.DataFrame, overall: dict, monthly: pd.DataFrame) -> Non
     pred.to_parquet(config.REPORTS / "backtest_predictions.parquet")
     monthly.round(2).to_csv(config.REPORTS / "backtest_monthly_mape.csv")
     (config.REPORTS / "backtest_metrics.json").write_text(json.dumps(overall, indent=2))
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-    week = pred.dropna().iloc[-24 * 7:]
-    t = week.index.tz_convert(config.LOCAL_TZ)
-    axes[0].plot(t, week["actual"], color="#EA580C", lw=2, label="Actual")
-    axes[0].plot(t, week["gbm"], color="#1D4ED8", lw=2, label="Model")
-    if "nyiso" in week:
-        axes[0].plot(t, week["nyiso"], color="#94A3B8", lw=1.5, ls="--", label="NYISO forecast")
-    axes[0].set_title("Zone A (West) load, last week of backtest")
-    axes[0].set_ylabel("MW")
-    axes[0].legend()
-    monthly.plot(ax=axes[1], marker="o")
-    axes[1].set_title("Monthly MAPE (%), walk-forward")
-    axes[1].set_ylabel("MAPE %")
-    fig.tight_layout()
-    fig.savefig(config.REPORTS / "backtest.png", dpi=120)

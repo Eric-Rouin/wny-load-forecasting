@@ -1,7 +1,7 @@
 """python -m wnyload.run_backtest  -- build features and run the walk-forward backtest."""
 import json
 
-from . import backtest, config, data_nyiso, data_weather, features
+from . import backtest, charts, config, data_nyiso, data_weather, features
 
 
 def main(test_months: int = 24) -> None:
@@ -23,6 +23,7 @@ def main(test_months: int = 24) -> None:
     pred = backtest.walk_forward(table, nyiso, test_months=test_months)
     overall, monthly = backtest.summarize(pred)
     backtest.save_report(pred, overall, monthly)
+    charts.make_backtest_charts(pred, table)
     print(json.dumps(overall, indent=2))
     print(f"Report written to {config.REPORTS}")
 
