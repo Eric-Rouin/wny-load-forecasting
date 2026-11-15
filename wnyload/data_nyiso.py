@@ -46,16 +46,23 @@ def _months(start: date, end: date):
         d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
 
 
-def download(dataset: str, start: str = config.START_DATE, end: date | None = None) -> None:
-    """Cache one zip per month in data/raw/<dataset>/. Past months are downloaded once."""
-    end = end or date.today()
+def download(dataset: str, start: str = config.START_DATE, end: date | None = None,
+             refresh_months: int = 1) -> None:
+    """Cache one zip per month in data/raw/<dataset>/.
+
+    The last `refresh_months` months (counting the current one) are downloaded again every
+    time; older months only if they are missing. Refreshing the previous month as well
+    completes a month whose file was first saved part-way through it.
+    """
+    end = end or config.local_today()
     out_dir = config.DATA_RAW / dataset
     out_dir.mkdir(parents=True, exist_ok=True)
-    this_month = date(end.year, end.month, 1)
+    months = list(_months(pd.Timestamp(start).date(), end))
+    recent = set(months[-refresh_months:]) if refresh_months > 0 else set()
 
-    for m in _months(pd.Timestamp(start).date(), end):
+    for m in months:
         path = out_dir / f"{m:%Y%m}.zip"
-        if path.exists() and m != this_month:
+        if path.exists() and m not in recent:
             continue
         content = _get(f"{MIS_BASE}/{dataset}/{m:%Y%m01}{dataset}_csv.zip")
         if content is None:

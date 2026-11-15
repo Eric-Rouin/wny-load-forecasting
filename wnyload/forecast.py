@@ -41,18 +41,28 @@ def get_weather() -> pd.DataFrame:
     return history.combine_first(recent)
 
 
-def refresh_recent_data() -> None:
-    """Re-download the current month of NYISO load and forecasts (past months stay cached)."""
-    this_month = date.today().replace(day=1).isoformat()
-    print("Refreshing NYISO data for the current month")
-    data_nyiso.download("palIntegrated", start=this_month)
-    data_nyiso.download("isolf", start=this_month)
+def refresh_data() -> None:
+    """Bring the cached data up to date.
+
+    NYISO: download any missing months and re-download the current and previous month
+    (older months stay cached). Weather: extend the archive history. On a fresh machine
+    this downloads everything.
+    """
+    print("Refreshing NYISO load and forecasts")
+    data_nyiso.download("palIntegrated", refresh_months=2)
+    data_nyiso.download("isolf", refresh_months=2)
+    print("Refreshing weather history")
+    data_weather.update_history()
 
 
 def forecast_day(day: date, refresh: bool = True) -> tuple[pd.DataFrame, pd.Series]:
-    """Hourly forecast for `day`, plus the full actual-load series it was built from."""
+    """Hourly forecast for `day`, plus the full actual-load series it was built from.
+
+    `out.attrs` records how many hours the model trained on and the last load hour
+    it could see.
+    """
     if refresh:
-        refresh_recent_data()
+        refresh_data()
     load = data_nyiso.load_actuals()
     issue = issue_time(day)
     hours = target_hours(day)
@@ -82,17 +92,19 @@ def forecast_day(day: date, refresh: bool = True) -> tuple[pd.DataFrame, pd.Seri
         out["nyiso_forecast_mw"] = float("nan")
     out["actual_mw"] = load.reindex(hours)
     out["temperature_f"] = weather.reindex(hours)["temperature_2m"] * 9 / 5 + 32
+    out.attrs["train_hours"] = len(train)
+    out.attrs["load_through"] = known.index.max()
     print(f"Trained on {len(train):,} hours observed before {issue.tz_convert(config.LOCAL_TZ):%Y-%m-%d %H:%M %Z}")
     return out, load
 
 
-def save(day: date, out: pd.DataFrame, load: pd.Series) -> None:
-    FORECASTS.mkdir(parents=True, exist_ok=True)
+def save(day: date, out: pd.DataFrame, load: pd.Series, folder=FORECASTS) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
     table = out.copy()
     table.insert(0, "hour_local", table.index.tz_convert(config.LOCAL_TZ).strftime("%Y-%m-%d %H:%M %Z"))
-    table.round(1).to_csv(FORECASTS / f"forecast_{day}.csv", index_label="hour_utc")
+    table.round(1).to_csv(folder / f"forecast_{day}.csv", index_label="hour_utc")
     recent = load[(load.index >= out.index[0] - pd.Timedelta(days=3)) & (load.index < out.index[0])]
-    charts.forecast_chart(out, recent, FORECASTS / f"forecast_{day}.png")
+    charts.forecast_chart(out, recent, folder / f"forecast_{day}.png")
 
 
 def report(day: date, out: pd.DataFrame) -> None:
@@ -112,9 +124,9 @@ def report(day: date, out: pd.DataFrame) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--day", type=date.fromisoformat, default=date.today() + timedelta(days=1),
+    parser.add_argument("--day", type=date.fromisoformat, default=config.local_today() + timedelta(days=1),
                         help="target day, YYYY-MM-DD (default: tomorrow)")
-    parser.add_argument("--no-refresh", action="store_true", help="skip re-downloading this month's NYISO data")
+    parser.add_argument("--no-refresh", action="store_true", help="skip downloading new NYISO and weather data")
     args = parser.parse_args()
 
     out, load = forecast_day(args.day, refresh=not args.no_refresh)

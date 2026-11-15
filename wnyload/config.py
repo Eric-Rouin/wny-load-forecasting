@@ -1,5 +1,7 @@
 """Project-wide settings."""
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_RAW = ROOT / "data" / "raw"
@@ -31,3 +33,8 @@ START_DATE = "2018-01-01"
 # ISSUE_HOUR (local time) on day D-1. Features may only use load observed
 # at or before that moment. This is what keeps the backtest honest.
 ISSUE_HOUR = 9
+
+
+def local_today() -> date:
+    """Today's date in Buffalo, whatever the machine's (or container's) clock zone is."""
+    return datetime.now(ZoneInfo(LOCAL_TZ)).date()

@@ -51,6 +51,38 @@ been forecast at the time (trained only on data before 9 AM the day before), so 
 checked against the actual load. `python -m wnyload.charts` redraws the backtest charts
 without re-running the backtest.
 
+### Daily job
+
+`python -m wnyload.daily` is the once-a-day job, meant to run shortly after 9 AM:
+
+1. downloads new NYISO data and weather (on a fresh machine, the whole history),
+2. forecasts tomorrow into `reports/live/forecasts/`,
+3. scores every live forecast whose day is over against the actual load
+   (`reports/live/scores.csv`: MAPE, MAE and bias for the model and NYISO, per day),
+4. logs the run to `reports/live/runs.csv` and `reports/live/daily.log`.
+
+Days missed while the machine was off are scored on the next run. It exits with status 1
+if any step failed. Only this job writes to `reports/live/`, so those scores measure the
+real live accuracy, with weather forecasts rather than the historical weather the
+backtest uses.
+
+### Running in Docker
+
+The job also runs in a container, which is how the home server runs it:
+
+```bash
+docker compose build
+docker compose run --rm daily
+```
+
+`data/` and `reports/` are mounted from the host, so downloaded data and the live
+forecast history survive rebuilds. The image installs the exact package versions in
+`requirements-lock.txt`. After `git pull`, run `docker compose build` again.
+
+To run it every morning on Windows, create a Task Scheduler task that runs at 9:30 AM
+with program `docker`, arguments `compose run --rm daily`, and *Start in* set to this
+folder.
+
 ![Example forecast](reports/figures/example_forecast.png)
 
 ## Results
@@ -117,6 +149,6 @@ ten worst days in `reports/worst_days.csv`.
 2. Feature and model improvements: account for growing rooftop solar first (a time trend,
    weighting recent data more, or solar capacity data from NYSERDA's IEDR), then
    hyperparameter tuning and more weather points
-3. Daily job: fetch data, forecast tomorrow, score yesterday (`wnyload.forecast` is the
-   forecasting half)
+3. ~~Daily job: fetch data, forecast tomorrow, score yesterday~~ (done: `wnyload.daily`,
+   in Docker); next is scheduling it on the home server
 4. Dashboard (Streamlit or FastAPI) in Docker on a home server, published through Cloudflare Tunnel

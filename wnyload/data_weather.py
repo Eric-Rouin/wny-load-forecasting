@@ -35,10 +35,14 @@ def _request(url: str, params: dict) -> pd.DataFrame:
     return df
 
 
+HISTORY = config.DATA_RAW / "weather_history.parquet"
+ARCHIVE_LAG_DAYS = 6  # the archive lags real time by a few days
+
+
 def download_history(start: str = config.START_DATE, end: date | None = None) -> pd.DataFrame:
     """Fetch history year by year and cache to data/raw/weather_history.parquet."""
-    end = end or date.today() - timedelta(days=6)  # archive lags real time by a few days
-    out = config.DATA_RAW / "weather_history.parquet"
+    end = end or config.local_today() - timedelta(days=ARCHIVE_LAG_DAYS)
+    out = HISTORY
     out.parent.mkdir(parents=True, exist_ok=True)
 
     chunks = []
@@ -60,5 +64,26 @@ def fetch_forecast(past_days: int = 7, forecast_days: int = 3) -> pd.DataFrame:
     return _request(FORECAST_URL, {"past_days": past_days, "forecast_days": forecast_days})
 
 
+def update_history(overlap_days: int = 10) -> pd.DataFrame:
+    """Extend the cached history to the archive's latest day (download it all if missing).
+
+    The last `overlap_days` already cached are fetched again, since the archive revises
+    its most recent days.
+    """
+    if not HISTORY.exists():
+        return download_history()
+    old = load_history()
+    end = config.local_today() - timedelta(days=ARCHIVE_LAG_DAYS)
+    start = (old.index.max() - pd.Timedelta(days=overlap_days)).date()
+    if start > end:
+        return old
+    print(f"  weather {start} to {end}")
+    new = _request(ARCHIVE_URL, {"start_date": str(start), "end_date": str(end)}).dropna(how="all")
+    df = pd.concat([old, new]).sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+    df.to_parquet(HISTORY)
+    return df
+
+
 def load_history() -> pd.DataFrame:
-    return pd.read_parquet(config.DATA_RAW / "weather_history.parquet")
+    return pd.read_parquet(HISTORY)

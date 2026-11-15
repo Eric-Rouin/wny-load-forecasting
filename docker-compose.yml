@@ -1,0 +1,11 @@
+# Run the daily job once:   docker compose run --rm daily
+# Rebuild after git pull:   docker compose build
+services:
+  daily:
+    build: .
+    image: wnyload
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+    environment:
+      TZ: America/New_York
